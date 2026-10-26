@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>프레임을 해체하라!</title>
+<style>
+:root{--ink:#26354a;--mint:#bdebdc;--cream:#fff8e9;--pink:#ffb7c8;--blue:#a8d9ff}
+*{box-sizing:border-box} body{margin:0;background:#d9f3e9;color:var(--ink);font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;display:flex;justify-content:center;min-height:100vh}
+#app{width:min(100vw,520px);min-height:100vh;background:linear-gradient(#c8edff 0 34%,#d8f2c8 34%);position:relative;overflow:hidden}
+header{padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:center;font-weight:900}
+.logo{font-size:18px}.stats{display:flex;gap:10px;font-size:14px;background:#ffffffc9;padding:7px 11px;border-radius:18px}
+#gameWrap{position:relative;margin:0 10px;border:4px solid #fff;border-radius:25px;overflow:hidden;background:#c9e9ff;box-shadow:0 7px 0 #a4d6c3}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:18px;background:#23364a66}
+.panel{width:100%;max-width:370px;background:#fff9ec;border:4px solid white;border-radius:25px;padding:22px 18px;text-align:center;box-shadow:0 7px 0 #9ec6bd}
+.panel h1{font-size:25px;margin:0 0 7px}.panel p{line-height:1.5;margin:7px 0 15px}
+button{border:0;border-radius:16px;padding:12px 16px;background:#ff9fb8;color:#563344;font-weight:900;font-size:16px;box-shadow:0 4px 0 #d97592;cursor:pointer}
+button:active{transform:translateY(2px);box-shadow:0 2px 0 #d97592}
+#quiz{position:absolute;left:8px;right:8px;bottom:8px;background:#fff9ec;border:4px solid #fff;border-radius:22px;padding:15px;z-index:3;box-shadow:0 5px 0 #a4c8bb}
+#quiz h2{font-size:18px;margin:0 0 8px}#quiz p{font-size:14px;margin:0 0 10px;line-height:1.4}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:8px}.answers button{font-size:13px;padding:11px 7px;background:#c8e7ff;box-shadow:0 3px 0 #8cb6d4;color:#23425c}
+#feedback{font-size:13px;font-weight:800;min-height:18px;margin-top:9px}
+#controls{display:flex;justify-content:center;gap:14px;padding:13px}
+#controls button{width:68px;background:#fff;border:2px solid #fff;box-shadow:0 4px 0 #b5d8ca;font-size:22px}
+.small{font-size:12px;color:#577080}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="app">
+<header><div class="logo">🐰 프레임을 해체하라!</div><div class="stats"><span>❤️ <b id="lives">3</b></span><span>⭐ <b id="score">0</b></span></div></header>
+<div id="gameWrap">
+<canvas id="game" width="480" height="620" aria-label="토끼가 길을 건너는 게임"></canvas>
+<div id="overlay"><div class="panel"><div style="font-size:62px">🐰</div><h1>프레임을 해체하라!</h1><p>토끼와 함께 안전하게 길을 건너자!<br>장애물을 피하고 미디어 퀴즈에 도전해 봐.</p><p class="small">화면 아래 ◀ ▶ 버튼 또는 키보드 방향키로 이동</p><button id="start">게임 시작!</button></div></div>
+<div id="quiz" class="hidden"><h2 id="qtitle">📣 미디어 퀴즈!</h2><p id="qtext"></p><div class="answers" id="answers"></div><div id="feedback"></div></div>
+</div>
+<div id="controls"><button id="left" aria-label="왼쪽">◀</button><button id="up" aria-label="앞으로">▲</button><button id="right" aria-label="오른쪽">▶</button></div>
+<p class="small" style="text-align:center;padding:0 15px 12px">퀴즈를 맞히면 생명 +1! 오래 달릴수록 속도가 빨라져.</p>
+</div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const overlay=document.getElementById('overlay'),quiz=document.getElementById('quiz');
+const livesEl=document.getElementById('lives'),scoreEl=document.getElementById('score');
+let running=false,paused=false,lives=3,score=0,tick=0,speed=1,player={lane:1,row:0},obstacles=[],quizTimer=0,last=0,frame=0;
+const laneX=[112,240,368], rowY=[530,468,406,344,282,220,158,96,34];
+const qs=[
+["제목이 자극적이라고 해서 내용도 반드시 사실일까?",["그렇다","아니다"],1,"제목만으로 사실 여부를 판단할 수 없어. 본문과 다른 출처도 확인하자!"],
+["광고에서 좋은 점만 강조하면 소비자가 놓칠 수 있는 것은?",["제품의 단점과 조건","광고의 글자 색"],0,"맞아! 광고는 장점뿐 아니라 가격, 조건, 단점도 확인해야 해."],
+["SNS에서 같은 의견의 게시물만 계속 보면 생길 수 있는 일은?",["다른 관점을 더 많이 접함","생각이 한쪽으로 치우침"],1,"추천 알고리즘은 비슷한 콘텐츠를 반복해 보여 줄 수 있어."],
+["사진과 영상은 언제나 맥락과 무관하게 객관적일까?",["아니다","그렇다"],0,"편집과 촬영 각도, 앞뒤 맥락에 따라 인상이 달라질 수 있어."],
+["뉴스를 공유하기 전에 가장 먼저 할 일은?",["제목만 읽고 바로 공유","출처와 날짜, 본문 확인"],1,"출처와 날짜를 살펴보고 다른 신뢰할 만한 자료와 비교해 보자."],
+["개인정보를 지키는 행동은?",["비밀번호를 친구와 공유","앱 권한과 공개 범위 확인"],1,"필요한 권한만 허용하고 계정 공개 범위를 확인하는 게 좋아."],
+["숫자나 통계를 볼 때 중요한 것은?",["조사 대상과 기준 확인","숫자가 크면 무조건 믿기"],0,"표본, 조사 시기, 비교 기준을 알아야 통계를 제대로 해석할 수 있어."],
+["한 집단을 늘 부정적으로 묘사하는 콘텐츠는?",["편견을 강화할 수 있다","언제나 현실을 그대로 보여 준다"],0,"반복되는 재현은 집단에 대한 고정관념을 강화할 수 있어."]
+];
+function drawRoad(){
+ ctx.clearRect(0,0,480,620);
+ // sky and far hills
+ ctx.fillStyle='#c8eaff';ctx.fillRect(0,0,480,620);
+ ctx.fillStyle='#a8dba8';ctx.beginPath();ctx.moveTo(0,120);ctx.quadraticCurveTo(100,60,210,125);ctx.quadraticCurveTo(350,45,480,110);ctx.lineTo(480,620);ctx.lineTo(0,620);ctx.fill();
+ // roadside grass
+ ctx.fillStyle='#b6e4a5';ctx.fillRect(0,0,46,620);ctx.fillRect(434,0,46,620);
+ for(let y=-20+(tick*speed%70);y<620;y+=70){drawFlower(22,y);drawFlower(455,y+25)}
+ // three clear fixed lanes
+ ctx.fillStyle='#7f8999';ctx.fillRect(48,0,384,620);
+ ctx.fillStyle='#919baa';ctx.fillRect(53,0,374,620);
+ ctx.strokeStyle='#fff1c8';ctx.lineWidth=4;ctx.setLineDash([23,20]);
+ ctx.beginPath();ctx.moveTo(176,0);ctx.lineTo(176,620);ctx.moveTo(304,0);ctx.lineTo(304,620);ctx.stroke();ctx.setLineDash([]);
+ // subtle horizontal lane markings
+ ctx.strokeStyle='#aeb6c3';ctx.lineWidth=2;for(let y=20+(tick*speed%80);y<620;y+=80){ctx.beginPath();ctx.moveTo(55,y);ctx.lineTo(425,y);ctx.stroke()}
+}
+function drawFlower(x,y){ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.fillStyle='#ffcc65';ctx.beginPath();ctx.arc(x,y,2.5,0,Math.PI*2);ctx.fill()}
+function drawBunny(x,y){
+ // soft shadow
+ ctx.fillStyle='#526b7a33';ctx.beginPath();ctx.ellipse(x,y+21,22,7,0,0,Math.PI*2);ctx.fill();
+ // ears
+ ctx.fillStyle='#fff8f1';ctx.beginPath();ctx.ellipse(x-10,y-26,7,19,-.18,0,Math.PI*2);ctx.ellipse(x+10,y-27,7,19,.18,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#ffb6c7';ctx.beginPath();ctx.ellipse(x-10,y-27,3,12,-.18,0,Math.PI*2);ctx.ellipse(x+10,y-28,3,12,.18,0,Math.PI*2);ctx.fill();
+ // body
+ ctx.fillStyle='#fff8f1';ctx.beginPath();ctx.ellipse(x,y+8,19,19,0,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(x,y-8,19,0,Math.PI*2);ctx.fill();
+ // cheeks and face
+ ctx.fillStyle='#ffb9c8';ctx.beginPath();ctx.arc(x-10,y-4,4,0,Math.PI*2);ctx.arc(x+10,y-4,4,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#39465b';ctx.beginPath();ctx.arc(x-6,y-10,2.2,0,Math.PI*2);ctx.arc(x+6,y-10,2.2,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#f18ca5';ctx.beginPath();ctx.moveTo(x,y-5);ctx.lineTo(x-3,y-8);ctx.lineTo(x+3,y-8);ctx.closePath();ctx.fill();
+ ctx.strokeStyle='#8e6572';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,y-5);ctx.lineTo(x,y-1);ctx.moveTo(x,y-1);ctx.quadraticCurveTo(x-4,y+2,x-5,y-1);ctx.moveTo(x,y-1);ctx.quadraticCurveTo(x+4,y+2,x+5,y-1);ctx.stroke();
+}
+function drawObstacle(o){
+ const x=laneX[o.lane],y=o.y;
+ // vehicle stays entirely inside its lane
+ if(o.type==='car'){
+  ctx.fillStyle='#f4a3b5';roundRect(x-40,y-22,80,43,11);ctx.fill();
+  ctx.fillStyle='#c7edff';roundRect(x-25,y-17,50,15,6);ctx.fill();
+  ctx.fillStyle='#ffe9a5';ctx.fillRect(x-33,y+12,10,5);ctx.fillRect(x+23,y+12,10,5);
+  ctx.fillStyle='#536072';ctx.fillRect(x-29,y+19,14,5);ctx.fillRect(x+15,y+19,14,5);
+ }else{
+  ctx.fillStyle='#f6d27e';roundRect(x-27,y-21,54,42,10);ctx.fill();
+  ctx.fillStyle='#fff0c4';ctx.fillRect(x-18,y-11,36,6);
+  ctx.fillStyle='#d78d64';ctx.beginPath();ctx.arc(x,y+4,7,0,Math.PI*2);ctx.fill();
+ }
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
+function reset(){lives=3;score=0;tick=0;speed=1;player={lane:1,row:0};obstacles=[];quizTimer=0;updateStats()}
+function updateStats(){livesEl.textContent=lives;scoreEl.textContent=score}
+function move(dir){if(!running||paused)return;if(dir==='left')player.lane=Math.max(0,player.lane-1);if(dir==='right')player.lane=Math.min(2,player.lane+1);if(dir==='up'){player.row=Math.min(8,player.row+1);score+=1;speed=Math.min(2.8,1+score*.018);updateStats();if(score>0&&score%5===0&&!quizTimer)showQuiz()}}
+function spawn(){let lane=Math.floor(Math.random()*3);obstacles.push({lane,y:-40,type:Math.random()<.7?'car':'cone',checked:false})}
+function showQuiz(){if(!running)return;paused=true;quiz.classList.remove('hidden');let q=qs[Math.floor(Math.random()*qs.length)];document.getElementById('qtext').textContent=q[0];document.getElementById('feedback').textContent='';const a=document.getElementById('answers');a.innerHTML='';q[1].forEach((label,i)=>{let b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(i===q[2]){lives=Math.min(5,lives+1);document.getElementById('feedback').textContent='정답! 생명이 1칸 회복됐어 💗';}else{document.getElementById('feedback').textContent=q[3];}updateStats();setTimeout(()=>{quiz.classList.add('hidden');paused=false;quizTimer=130;},950)};a.appendChild(b)});}
+function endGame(){running=false;paused=false;overlay.classList.remove('hidden');overlay.querySelector('.panel').innerHTML=`<div style="font-size:60px">🐰</div><h1>다시 도전해 볼까?</h1><p>이번 점수는 <b>${score}</b>점이야!<br>퀴즈 정답으로 생명을 회복할 수 있어.</p><button id="start">다시 시작!</button>`;document.getElementById('start').onclick=start;}
+function start(){reset();running=true;paused=false;overlay.classList.add('hidden');quiz.classList.add('hidden');last=0;requestAnimationFrame(loop)}
+function loop(t){if(!running)return;let dt=Math.min(32,t-(last||t));last=t;if(!paused){tick+=dt*.06;frame+=dt; if(frame>Math.max(420,1000/speed)){spawn();frame=0}
+ obstacles.forEach(o=>{o.y+=dt*.11*speed; if(!o.checked&&o.y>rowY[player.row]-23&&o.y<rowY[player.row]+23&&o.lane===player.lane){o.checked=true;lives--;updateStats();if(lives<=0){endGame();return}}});obstacles=obstacles.filter(o=>o.y<670);if(quizTimer>0)quizTimer--;drawRoad();obstacles.forEach(drawObstacle);drawBunny(laneX[player.lane],rowY[player.row]);ctx.fillStyle='#26354a';ctx.font='bold 14px system-ui';ctx.fillText('앞으로 이동하며 점수를 모아 봐!',64,28)}if(running)requestAnimationFrame(loop)}
+document.getElementById('start').onclick=start;
+document.getElementById('left').onclick=()=>move('left');document.getElementById('right').onclick=()=>move('right');document.getElementById('up').onclick=()=>move('up');
+document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')move('left');if(e.key==='ArrowRight')move('right');if(e.key==='ArrowUp'||e.key===' ')move('up')});
+let sx=0,sy=0;canvas.addEventListener('touchstart',e=>{sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY},{passive:true});canvas.addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)){move(dx<0?'left':'right')}else if(dy<-15)move('up')},{passive:true});
+drawRoad();drawBunny(laneX[1],rowY[0]);
+})();
+</script>
+</body></html>
